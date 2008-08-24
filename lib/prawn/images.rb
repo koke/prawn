@@ -36,12 +36,11 @@ module Prawn
     # proportionally.  When both are provided, the image will be stretched to 
     # fit the dimensions without maintaining the aspect ratio.
     #
-    def image(filename, options={})
+    def image(filename, options={})     
+      Prawn.verify_options [:at,:position, :height, :width, :scale], options
       raise ArgumentError, "#{filename} not found" unless File.file?(filename)  
       
-      
-      read_mode = ruby_18 { "rb" } || ruby_19 { "rb:ASCII-8BIT" }
-      image_content =  File.open(filename, read_mode) { |f| f.read }
+      image_content =  File.read_binary(filename)
       
       image_sha1 = Digest::SHA1.hexdigest(image_content)
 
@@ -90,17 +89,15 @@ module Prawn
     
     def image_position(w,h,options)
       options[:position] ||= :left
-      case options[:position] 
+      x = case options[:position] 
       when :left
-        x,y = bounds.absolute_left, self.y
+        bounds.absolute_left
       when :center
-        x = bounds.absolute_left + (bounds.width - w) / 2.0 
-        y = self.y
+        bounds.absolute_left + (bounds.width - w) / 2.0 
       when :right
-        x,y = bounds.absolute_right - w, self.y  
+        bounds.absolute_right - w
       when Numeric
-        x = options[:position] + bounds.absolute_left
-        y = self.y
+        options[:position] + bounds.absolute_left
       end       
       
       return [x,y]
@@ -185,13 +182,37 @@ module Prawn
                                  :DeviceRGB,
                                  (png.palette.size / 3) -1,
                                  palette_obj]
-
-        # add transparency data if necessary
-        #if png.transparency && png.transparency[:type] == 'indexed'
-        #  obj.data[:Mask] = png.transparency[:data]
-        #end
       end
 
+      # *************************************
+      # add transparency data if necessary
+      # *************************************
+
+      # For PNG color types 0, 2 and 3, the transparency data is stored in
+      # a dedicated PNG chunk, and is exposed via the transparency attribute
+      # of the PNG class.
+      if png.transparency[:grayscale]
+        # Use Color Key Masking (spec section 4.8.5)
+        # - An array with N elements, where N is two times the number of color
+        #   components.
+        val = png.transparency[:grayscale]
+        obj.data[:Mask] = [val, val]
+      elsif png.transparency[:rgb]
+        # Use Color Key Masking (spec section 4.8.5)
+        # - An array with N elements, where N is two times the number of color
+        #   components.
+        rgb = png.transparency[:rgb]
+        obj.data[:Mask] = rgb.collect { |val| [val,val] }.flatten
+      elsif png.transparency[:indexed]
+        # TODO: broken. I was attempting to us Color Key Masking, but I think
+        #       we need to construct an SMask i think. Maybe do it inside
+        #       the PNG class, and store it in alpha_channel
+        #obj.data[:Mask] = png.transparency[:indexed]
+      end
+
+      # For PNG color types 4 and 6, the transparency data is stored as a alpha
+      # channel mixed in with the main image data. The PNG class seperates
+      # it out for us and makes it available via the alpha_channel attribute
       if png.alpha_channel
         smask_obj = ref(:Type             => :XObject,
                         :Subtype          => :Image,

@@ -3,74 +3,61 @@
 require File.join(File.expand_path(File.dirname(__FILE__)), "spec_helper")  
                                
 describe "When creating multi-page documents" do 
-  
-  class PageCounter
-    attr_accessor :pages
-
-    def initialize
-      @pages = 0
-    end
-
-    # Called when page parsing ends
-    def end_page
-      @pages += 1
-    end
-  end
-  
-  
+ 
   before(:each) { create_pdf }
   
   it "should initialize with a single page" do 
-    page_counter = count_pages
+    page_counter = PDF::Inspector::Page.analyze(@pdf.render)
     
-    page_counter.pages.should == 1            
+    page_counter.pages.size.should == 1            
     @pdf.page_count.should == 1  
   end
   
   it "should provide an accurate page_count" do
     3.times { @pdf.start_new_page }           
-    page_counter = count_pages
+    page_counter = PDF::Inspector::Page.analyze(@pdf.render)
     
-    page_counter.pages.should == 4
+    page_counter.pages.size.should == 4
     @pdf.page_count.should == 4
-  end        
-  
-  def count_pages        
-    output = @pdf.render
-    obs = PageCounter.new
-    PDF::Reader.string(output,obs) 
-    return obs
-  end              
+  end                 
   
 end   
 
 describe "When beginning each new page" do
 
-  it "should execute the lambda specified by on_page_start" do
-    on_start = mock("page_start_proc")
-
-    on_start.expects(:[]).times(3)
+  it "should execute codeblock given to Document#header" do
+    call_count = 0    
    
-    pdf = Prawn::Document.new(:on_page_start => on_start)
+    pdf = Prawn::Document.new      
+    pdf.header(pdf.margin_box.top_left) do 
+      call_count += 1   
+    end
+    
     pdf.start_new_page 
-    pdf.start_new_page
-  end
+    pdf.start_new_page 
+    pdf.render
+    
+    call_count.should == 3
+  end                   
 
 end
 
-
 describe "When ending each page" do
 
-  it "should execute the lambda specified by on_page_end" do
-
-    on_end = mock("page_end_proc")
-
-    on_end.expects(:[]).times(3)
-
-    pdf = Prawn::Document.new(:on_page_stop => on_end)
-    pdf.start_new_page
-    pdf.start_new_page
+  it "should execute codeblock given to Document#footer" do
+   
+    call_count = 0    
+   
+    pdf = Prawn::Document.new      
+    pdf.footer([pdf.margin_box.left, pdf.margin_box.bottom + 50]) do 
+      call_count += 1   
+    end
+    
+    pdf.start_new_page 
+    pdf.start_new_page 
     pdf.render
+    
+    call_count.should == 3
   end
 
   it "should not compress the page content stream if compression is disabled" do
@@ -99,44 +86,25 @@ describe "When ending each page" do
 
 end                                 
 
-class PageDetails      
-  
-  def begin_page(params)
-    @geometry = params[:MediaBox]
-  end                       
-  
-  def size
-    @geometry[-2..-1] 
-  end
-  
-end
-
-def detect_page_details
-  output = @pdf.render
-  obs = PageDetails.new
-  PDF::Reader.string(output,obs) 
-  return obs      
-end
-
 describe "When setting page size" do
   it "should default to LETTER" do
     @pdf = Prawn::Document.new
-    page = detect_page_details
-    page.size.should == Prawn::Document::PageGeometry::SIZES["LETTER"]    
+    pages = PDF::Inspector::Page.analyze(@pdf.render).pages
+    pages.first[:size].should == Prawn::Document::PageGeometry::SIZES["LETTER"]    
   end                                                                  
   
   (Prawn::Document::PageGeometry::SIZES.keys - ["LETTER"]).each do |k|
     it "should provide #{k} geometry" do
       @pdf = Prawn::Document.new(:page_size => k)
-      page = detect_page_details
-      page.size.should == Prawn::Document::PageGeometry::SIZES[k]
+      pages = PDF::Inspector::Page.analyze(@pdf.render).pages   
+      pages.first[:size].should == Prawn::Document::PageGeometry::SIZES[k]
     end
   end
   
   it "should allow custom page size" do 
-      @pdf = Prawn::Document.new(:page_size => [1920, 1080] )
-      page = detect_page_details
-      page.size.should == [1920, 1080]
+    @pdf = Prawn::Document.new(:page_size => [1920, 1080] )
+    pages = PDF::Inspector::Page.analyze(@pdf.render).pages   
+    pages.first[:size].should == [1920, 1080]   
   end
 
 end       
@@ -144,8 +112,8 @@ end
 describe "When setting page layout" do
   it "should reverse coordinates for landscape" do
     @pdf = Prawn::Document.new(:page_size => "A4", :page_layout => :landscape)
-    page = detect_page_details
-    page.size.should == Prawn::Document::PageGeometry::SIZES["A4"].reverse
+    pages = PDF::Inspector::Page.analyze(@pdf.render).pages    
+    pages.first[:size].should == Prawn::Document::PageGeometry::SIZES["A4"].reverse
   end   
 end
 

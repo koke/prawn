@@ -30,6 +30,7 @@ module Prawn
 
         @palette  = ""
         @img_data = ""
+        @transparency = {}
 
         loop do
           chunk_size  = data.read(4).unpack("N")[0]
@@ -61,16 +62,17 @@ module Prawn
               # the palette index in the PLTE ("palette") chunk up until the
               # last non-opaque entry. Set up an array, stretching over all
               # palette entries which will be 0 (opaque) or 1 (transparent).
-              @transparency[:type]  = 'indexed'
-              @transparency[:data]  = data.read(chunk_size).unpack("C*")
+              @transparency[:indexed]  = data.read(chunk_size).unpack("C*")
+              short = 255 - @transparency[:indexed].size
+              @transparency[:indexed] += ([255] * short) if short > 0
             when 0
               # Greyscale. Corresponding to entries in the PLTE chunk.
               # Grey is two bytes, range 0 .. (2 ^ bit-depth) - 1
-              @transparency[:grayscale] = data.read(2).unpack("n")
-              @transparency[:type]      = 'indexed'
+              grayval = data.read(chunk_size).unpack("n").first
+              @transparency[:grayscale] = grayval
             when 2
               # True colour with proper alpha channel.
-              @transparency[:rgb] = data.read(6).unpack("nnn")
+              @transparency[:rgb] = data.read(chunk_size).unpack("nnn")
             end
           when 'IEND'
             # we've got everything we need, exit the loop
@@ -88,8 +90,8 @@ module Prawn
       end
 
       def pixel_bytes
-        case @color_type
-        when 0, 4    then 1
+        @pixel_bytes ||= case @color_type
+        when 0, 3, 4 then 1
         when 1, 2, 6 then 3
         end
       end
@@ -98,17 +100,6 @@ module Prawn
 
       def alpha_channel?
         @color_type == 4 || @color_type == 6
-      end
-
-      def paeth(a, b, c) # left, above, upper left
-        p = a + b - c
-        pa = (p - a).abs
-        pb = (p - b).abs
-        pc = (p - c).abs
-
-        return a if pa <= pb && pa <= pc
-        return b if pb <= pc
-        c
       end
 
       def unfilter_image_data
@@ -120,7 +111,8 @@ module Prawn
         pixel_length = pixel_bytes + 1
         scanline_length = pixel_length * @width + 1 # for filter
         row = 0
-        pixels = []
+        pixels = []    
+        paeth, pa, pb, pc = nil
         until data.empty? do
           row_data = data.slice! 0, scanline_length
           filter = row_data.shift
@@ -152,15 +144,27 @@ module Prawn
               col = index / pixel_length
 
               left = index < pixel_length ? 0 : row_data[index - pixel_length]
-              if row == 0 then
+              if row.zero?
                 upper = upper_left = 0
               else
                 upper = pixels[row-1][col][index % pixel_length]
-                upper_left = col == 0 ? 0 :
+                upper_left = col.zero? ? 0 :
                   pixels[row-1][col-1][index % pixel_length]
               end
 
-              paeth = paeth left, upper, upper_left
+              p = left + upper - upper_left
+              pa = (p - left).abs
+              pb = (p - upper).abs
+              pc = (p - upper_left).abs  
+
+              paeth = if pa <= pb && pa <= pc
+                left
+              elsif pb <= pc
+                upper
+              else
+                upper_left
+              end
+              
               row_data[index] = (byte + paeth) % 256
               #p [byte, paeth, row_data[index]]
             end
@@ -168,10 +172,11 @@ module Prawn
             raise ArgumentError, "Invalid filter algorithm #{filter}"
           end
 
-          pixels << []
+          s = []
           row_data.each_slice pixel_length do |slice|
-            pixels.last << slice
+            s << slice
           end
+          pixels << s
           row += 1
         end
 
