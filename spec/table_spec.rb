@@ -12,17 +12,17 @@ describe "A table's width" do
   end
 
   it "should calculate unspecified column widths as "+
-     "(max(string_width) + 2*horizontal_padding)" do
+     "(max(string_width).ceil + 2*horizontal_padding)" do
     pdf = Prawn::Document.new
     hpad, fs = 3, 12
     columns = 2
     table = Prawn::Document::Table.new( [%w[ foo b ], %w[d foobar]], pdf,
       :horizontal_padding => hpad, :font_size => fs)
 
-    col0_width = pdf.font_metrics.string_width("foo",fs)
-    col1_width = pdf.font_metrics.string_width("foobar",fs)
+    col0_width = pdf.font.metrics.string_width("foo",fs)
+    col1_width = pdf.font.metrics.string_width("foobar",fs)
 
-    table.width.should == col0_width + col1_width + 2*columns*hpad
+    table.width.should == col0_width.ceil + col1_width.ceil + 2*columns*hpad
   end
 
   it "should allow mixing autocalculated and preset"+
@@ -33,8 +33,8 @@ describe "A table's width" do
     stretchy_columns = 2
     
     col0_width = 50
-    col1_width = pdf.font_metrics.string_width("foo",fs)
-    col2_width = pdf.font_metrics.string_width("foobar",fs)
+    col1_width = pdf.font.metrics.string_width("foo",fs)
+    col2_width = pdf.font.metrics.string_width("foobar",fs)
     col3_width = 150
 
     table = Prawn::Document::Table.new( [%w[snake foo b apple], 
@@ -42,68 +42,36 @@ describe "A table's width" do
       :horizontal_padding => hpad, :font_size => fs, 
       :widths => { 0 => col0_width, 3 => col3_width } )
 
-        table.width.should == col1_width + col2_width + 2*stretchy_columns*hpad +
-                              col0_width + col3_width
+        table.width.should == col1_width.ceil + col2_width.ceil + 
+                              2*stretchy_columns*hpad + 
+                              col0_width.ceil + col3_width.ceil
 
   end
+      
+end   
 
-  it "should paginate large tables" do
-    # 30 rows fit on the table with default setting, 31 exceed.
-    data = [["foo"]] * 31
-    pdf = Prawn::Document.new
-
-    pdf.table data
-    pdf.page_count.should == 2
-
-    pdf.table data
-    pdf.page_count.should == 3
-  end
-
-  it "should have a height of n rows + vertical padding" do
+describe "A table's height" do 
+  
+  before :each do                                           
     data = [["foo"],["bar"],["baaaz"]]
     pdf = Prawn::Document.new
-    num_rows = data.length
-    vpad     = 4
-    
+    @num_rows = data.length
+       
+    @vpad  = 4
     origin = pdf.y
-    pdf.table data, :vertical_padding => vpad
+    pdf.table data, :vertical_padding => @vpad
 
-    table_height = origin - pdf.y
+    @table_height = origin - pdf.y
 
-    font_height = pdf.font_metrics.font_height(12)
-
-    table_height.should.be.close(num_rows*font_height + 2*vpad*num_rows + vpad, 0.001)
+    @font_height = pdf.font.height
+  end   
+  
+  it "should have a height of n rows" do  
+    @table_height.should.be.close(
+      @num_rows*@font_height + 2*@vpad*@num_rows, 0.001 )
   end
-
+  
 end
-
-class TableTextObserver
-  attr_accessor :font_settings, :size, :strings
-            
-  def initialize     
-    @font_settings = []
-    @fonts = {}
-    @strings = []
-  end
-  
-  def resource_font(*params)
-    @fonts[params[0]] = params[1].basefont
-  end
-
-  def set_text_font_and_size(*params)     
-    @font_settings << { :name => @fonts[params[0]], :size => params[1] }
-  end     
-  
-  def show_text(*params)
-    @strings << params[0]
-  end
-  
-  def show_text_with_positioning(*params)      
-    # ignore kerning information
-    @strings << params[0].reject { |e| Numeric === e }.join
-  end
-end
-
 
 describe "A table's content" do
 
@@ -111,7 +79,7 @@ describe "A table's content" do
     data = [["foo","bar"],["baz","bang"]]
     @pdf = Prawn::Document.new
     @pdf.table(data)
-    output = observer(TableTextObserver)
+    output = PDF::Inspector::Text.analyze(@pdf.render)
     output.strings.should == data.flatten
   end
 
@@ -120,7 +88,7 @@ describe "A table's content" do
     headers = %w[a b]
     @pdf = Prawn::Document.new
     @pdf.table(data, :headers => headers)
-    output = observer(TableTextObserver)
+    output = PDF::Inspector::Text.analyze(@pdf.render)   
     output.strings.should == headers + data.flatten
   end
 
@@ -129,7 +97,7 @@ describe "A table's content" do
     headers = ["baz","foobar"]
     @pdf = Prawn::Document.new
     @pdf.table(data, :headers => headers)
-    output = observer(TableTextObserver)
+    output = PDF::Inspector::Text.analyze(@pdf.render)   
     output.strings.should == headers + data.flatten[0..-3] + headers +
       data.flatten[-2..-1]
   end
@@ -140,6 +108,19 @@ describe "A table's content" do
       @pdf = Prawn::Document.new
       @pdf.table(data)
     }.should.not.raise
+  end   
+  
+  it "should paginate for large tables" do
+    # 30 rows fit on the table with default setting, 31 exceed.
+    data = [["foo"]] * 31
+    pdf = Prawn::Document.new
+
+    pdf.table data
+    pdf.page_count.should == 2
+
+    pdf.table data
+    pdf.page_count.should == 3
   end
+  
     
 end

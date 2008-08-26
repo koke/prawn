@@ -54,7 +54,8 @@ module Prawn
         @document     = options[:document]
         @text         = options[:text].to_s
         @width        = options[:width]
-        @border       = options[:border] || 1
+        @borders      = options[:borders]
+        @border_width = options[:border_width] || 1
         @border_style = options[:border_style] || :all               
         @background_color = options[:background_color] 
         @align            = options[:align] || :left
@@ -67,9 +68,10 @@ module Prawn
         end
       end
 
-      attr_accessor :point, :border_style, :border, :background_color,
-                    :document, :horizontal_padding, :vertical_padding,
-                    :align
+      attr_accessor :point, :border_style, :border_width, :background_color,
+                    :document, :horizontal_padding, :vertical_padding, :align,
+                    :borders
+                    
       attr_writer   :height, :width #:nodoc:   
            
       # Returns the cell's text as a string.
@@ -87,8 +89,8 @@ module Prawn
       # The width of the cell in PDF points
       #
       def width
-        @width || (@document.font_metrics.string_width(@text,
-          @document.font_size)) + 2*@horizontal_padding
+        @width || (@document.font.metrics.string_width(@text,
+          @document.font.size)) + 2*@horizontal_padding
       end
 
       # The height of the cell in PDF points
@@ -100,9 +102,7 @@ module Prawn
       # The height of the text area excluding the vertical padding
       #
       def text_area_height
-        @document.font_metrics.string_height(@text, 
-         :font_size  => @document.font_size, 
-         :line_width => text_area_width) 
+        @document.font.height_of(@text, :line_width => text_area_width) 
       end
 
       # Draws the cell onto the PDF document
@@ -113,32 +113,33 @@ module Prawn
         if @background_color    
           @document.mask(:fill_color) do
             @document.fill_color @background_color  
-            h  = borders.include?(:bottom) ? height - border : height + border / 2.0
-            @document.fill_rectangle [rel_point[0] + border / 2.0, 
-                                      rel_point[1] - border / 2.0 ], 
-                width - border, h  
+            h  = borders.include?(:bottom) ? 
+              height - border_width : height + border_width / 2.0
+            @document.fill_rectangle [rel_point[0] + border_width / 2.0, 
+                                      rel_point[1] - border_width / 2.0 ], 
+                width - border_width, h  
           end
         end
 
-        if @border > 0
+        if @border_width > 0
           @document.mask(:line_width) do
-            @document.line_width = @border
+            @document.line_width = @border_width
 
             if borders.include?(:left)
-              @document.stroke_line [rel_point[0], rel_point[1] + (@border / 2.0)], 
-                [rel_point[0], rel_point[1] - height - @border / 2.0 ]
+              @document.stroke_line [rel_point[0], rel_point[1] + (@border_width / 2.0)], 
+                [rel_point[0], rel_point[1] - height - @border_width / 2.0 ]
             end
 
             if borders.include?(:right)
               @document.stroke_line( 
-                [rel_point[0] + width, rel_point[1] + (@border / 2.0)],
-                [rel_point[0] + width, rel_point[1] - height - @border / 2.0] )
+                [rel_point[0] + width, rel_point[1] + (@border_width / 2.0)],
+                [rel_point[0] + width, rel_point[1] - height - @border_width / 2.0] )
             end
 
             if borders.include?(:top)
               @document.stroke_line(
-                [ rel_point[0] + @border / 2.0, rel_point[1] ], 
-                [ rel_point[0] - @border / 2.0 + width, rel_point[1] ])
+                [ rel_point[0] + @border_width / 2.0, rel_point[1] ], 
+                [ rel_point[0] - @border_width / 2.0 + width, rel_point[1] ])
             end
 
             if borders.include?(:bottom)
@@ -214,13 +215,17 @@ module Prawn
         @document.y = y - @height
       end
 
-      def border
-        @cells[0].border
+      def border_width
+        @cells[0].border_width
       end
 
       def border_style=(s)
         @cells.each { |e| e.border_style = s }
-      end                 
+      end    
+      
+      def align=(align) 
+        @cells.each { |e| e.align = align } 
+      end           
       
       def border_style
         @cells[0].border_style

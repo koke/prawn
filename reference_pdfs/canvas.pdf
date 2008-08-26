@@ -17,22 +17,22 @@ endobj
 >>
 endobj
 4 0 obj
-<< /Length 304
+<< /Length 280
 >>
 stream
 0.000 0.000 0.000 rg
 0.000 0.000 0.000 RG
 q
 
-              BT
-              /F1 12 Tf
-              0 780.612 Td
-            
+          BT
+          /F1 12 Tf
+          0 780.612 Td
+        
 [<54686973207465> 30 <78742073686f756c642061707065617220617420746865206162736f6c75746520746f70206c656674>] TJ
 
 
-              ET
-            
+          ET
+        
 0.000 0.000 m
 612.000 792.000 l
 S
@@ -58,7 +58,7 @@ endobj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
-/Encoding /MacRomanEncoding
+/Encoding /WinAnsiEncoding
 >>
 endobj
 xref
@@ -68,14 +68,14 @@ xref
 0000000108 00000 n 
 0000000165 00000 n 
 0000000214 00000 n 
-0000000569 00000 n 
-0000000714 00000 n 
-0000000742 00000 n 
+0000000545 00000 n 
+0000000690 00000 n 
+0000000718 00000 n 
 trailer
 << /Size 8
 /Root 3 0 R
 /Info 1 0 R
 >>
 startxref
-840
+815
 %%EOF

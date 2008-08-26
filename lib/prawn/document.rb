@@ -11,10 +11,12 @@ require "prawn/document/page_geometry"
 require "prawn/document/bounding_box"
 require "prawn/document/text"      
 require "prawn/document/table"
+require "prawn/document/internals"
 
 module Prawn
   class Document  
-    
+           
+    include Prawn::Document::Internals
     include Prawn::Graphics    
     include Prawn::Images
     include Text                             
@@ -22,29 +24,27 @@ module Prawn
     
     attr_accessor :y, :margin_box
     attr_reader   :margins, :page_size, :page_layout
-
-             
+      
     # Creates and renders a PDF document. 
     #
     # The block argument is necessary only when you need to make 
     # use of a closure.     
     #      
-    #  # Using implicit block form and rendering to a file
-    #  Prawn::Document.generate "foo.pdf" do
+    #   # Using implicit block form and rendering to a file
+    #   Prawn::Document.generate "foo.pdf" do
     #     font "Times-Roman"   
     #     text "Hello World", :at => [200,720], :size => 32       
-    #  end
+    #   end
     #         
-    #  # Using explicit block form and rendering to a file   
-    #  content = "Hello World"
-    #  Prawn::Document.generate "foo.pdf" do |pdf|
+    #   # Using explicit block form and rendering to a file   
+    #   content = "Hello World"
+    #   Prawn::Document.generate "foo.pdf" do |pdf|
     #     pdf.font "Times-Roman"
     #     pdf.text content, :at => [200,720], :size => 32
-    #  end                                                
+    #   end                                                
     #
     def self.generate(filename,options={},&block)
-      pdf = Prawn::Document.new(options)          
-      block.arity < 1 ? pdf.instance_eval(&block) : yield(pdf)
+      pdf = Prawn::Document.new(options,&block)          
       pdf.render_file(filename)
     end
           
@@ -67,21 +67,22 @@ module Prawn
     #
     #   # New document, A4 paper, landscaped
     #   pdf = Prawn::Document.new(:page_size => "A4", :page_layout => :landscape)    
-    # 
-    #   # New document, draws a line at the start of each new page
-    #   pdf = Prawn::Document.new(:on_page_start => 
-    #     lambda { |doc| doc.line [0,100], [300,100] } )
     #
-    def initialize(options={})
+    def initialize(options={},&block)   
+       Prawn.verify_options [:page_size, :page_layout, :on_page_start,
+         :on_page_stop, :left_margin, :right_margin, :top_margin,
+         :bottom_margin, :skip_page_creation, :compress ], options
+         
        @objects = []
        @info    = ref(:Creator => "Prawn", :Producer => "Prawn")
        @pages   = ref(:Type => :Pages, :Count => 0, :Kids => [])  
-       @root    = ref(:Type => :Catalog, :Pages => @pages)  
-       @page_start_proc = options[:on_page_start]
-       @page_stop_proc  = options[:on_page_stop]              
-       @page_size   = options[:page_size]   || "LETTER"    
-       @page_layout = options[:page_layout] || :portrait
-       @compress = options[:compress] || false
+       @root    = ref(:Type => :Catalog, :Pages => @pages)        
+       @page_size       = options[:page_size]   || "LETTER"    
+       @page_layout     = options[:page_layout] || :portrait
+       @compress        = options[:compress] || false                
+       @skip_encoding   = options[:skip_encoding]
+       
+       text_options.update(options[:text_options] || {}) 
              
        @margins = { :left   => options[:left_margin]   || 36,
                     :right  => options[:right_margin]  || 36,  
@@ -92,7 +93,11 @@ module Prawn
        
        @bounding_box = @margin_box
        
-       start_new_page unless options[:skip_page_creation]
+       start_new_page unless options[:skip_page_creation]    
+       
+       if block
+         block.arity < 1 ? instance_eval(&block) : block[self]    
+       end 
      end     
             
      # Creates and advances to a new page in the document.
@@ -116,22 +121,14 @@ module Prawn
        end
        
        finish_page_content if @page_content  
-       generate_margin_box    
-       @page_content = ref(:Length => 0)   
-     
-       @current_page = ref(:Type      => :Page, 
-                           :Parent    => @pages, 
-                           :MediaBox  => page_dimensions, 
-                           :Contents  => @page_content)
-       set_current_font    
-       update_colors
+       build_new_page_content
+
        @pages.data[:Kids] << @current_page
        @pages.data[:Count] += 1 
      
        add_content "q"   
        
-       @y = @margin_box.absolute_top        
-       @page_start_proc[self] if @page_start_proc
+       @y = @bounding_box.absolute_top        
     end             
       
     # Returns the number of pages in the document
@@ -176,6 +173,13 @@ module Prawn
     #
     def bounds
       @bounding_box
+    end  
+      
+    # Sets Document#bounds to the BoundingBox provided.  If you don't know
+    # why you'd need to do this, chances are, you can ignore this feature
+    #
+    def bounds=(bounding_box)
+      @bounding_box = bounding_box
     end
 
     # Moves up the document by n points
@@ -231,7 +235,6 @@ module Prawn
       move_down(y)
     end
 
-
     def mask(*fields) # :nodoc:
      # Stores the current state of the named attributes, executes the block, and
      # then restores the original values after the block has executed.
@@ -241,13 +244,29 @@ module Prawn
       yield
       fields.each { |f| send("#{f}=", stored[f]) }
     end
-
+     
+    # Returns true if content streams will be compressed before rendering,
+    # false otherwise
+    #
     def compression_enabled?
-      @compress
-    end
-
+      !!@compress
+    end 
    
     private 
+    
+    # See Prawn::Document::Internals for low-level PDF functions       
+    
+    def build_new_page_content
+      generate_margin_box    
+      @page_content = ref(:Length => 0)   
+    
+      @current_page = ref(:Type      => :Page, 
+                          :Parent    => @pages, 
+                          :MediaBox  => page_dimensions, 
+                          :Contents  => @page_content)
+      font.add_to_current_page if @font_name  
+      update_colors
+    end
     
     def generate_margin_box     
       old_margin_box = @margin_box
@@ -259,84 +278,10 @@ module Prawn
       )                                 
             
       # update bounding box if not flowing from the previous page
-      # TODO: This may have a bug where the old margin is restored
+      # FIXME: This may have a bug where the old margin is restored
       # when the bounding box exits.
       @bounding_box = @margin_box if old_margin_box == @bounding_box              
     end
-  
-    def ref(data)
-      @objects.push(Prawn::Reference.new(@objects.size + 1, data)).last
-    end                                               
-   
-    def add_content(str)
-     @page_content << str << "\n"
-    end  
-
-    # Add a new type to the current pages ProcSet
-    def proc_set(*types)
-      @current_page.data[:ProcSet] ||= ref([])
-      @current_page.data[:ProcSet].data |= types
-    end
-
-    def page_resources
-      @current_page.data[:Resources] ||= {}
-    end
-
-    def page_fonts
-      page_resources[:Font] ||= {}
-    end
-
-    def page_xobjects
-      page_resources[:XObject] ||= {}
-    end
     
-    def finish_page_content     
-      @page_stop_proc[self] if @page_stop_proc
-      add_content "Q"
-      @page_content.compress_stream if compression_enabled?
-      @page_content.data[:Length] = @page_content.stream.size
-    end
-    
-    # Write out the PDF Header, as per spec 3.4.1
-    def render_header(output)
-      # pdf version
-      output << "%PDF-1.3\n"
-
-      # 4 binary chars, as recommended by the spec
-      output << "\xFF\xFF\xFF\xFF\n"
-    end
-
-    # Write out the PDF Body, as per spec 3.4.2
-    def render_body(output)
-      @objects.each do |ref|
-        ref.offset = output.size
-        output << ref.object
-      end
-    end
-
-    # Write out the PDF Cross Reference Table, as per spec 3.4.3
-    def render_xref(output)
-      @xref_offset = output.size
-      output << "xref\n"
-      output << "0 #{@objects.size + 1}\n"
-      output << "0000000000 65535 f \n"
-      @objects.each do |ref|
-        output.printf("%010d", ref.offset)
-        output << " 00000 n \n"
-      end
-    end
-
-    # Write out the PDF Body, as per spec 3.4.4
-    def render_trailer(output)
-      trailer_hash = {:Size => @objects.size + 1, 
-                      :Root => @root,
-                      :Info => @info}
-
-      output << "trailer\n"
-      output << Prawn::PdfObject(trailer_hash) << "\n"
-      output << "startxref\n" 
-      output << @xref_offset << "\n"
-      output << "%%EOF"
-    end 
   end
 end
